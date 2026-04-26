@@ -255,11 +255,15 @@ class SaveFileAction(_BaseAction):
 
 
 class InspectSceneAction(_BaseAction):
-    """Return a lightweight description of the scene under ``context_path``."""
+    """Return a lightweight description of the scene under ``context_path``.
+
+    Defaults to ``/obj`` and depth 1, since that gives the most useful
+    summary of a typical Houdini scene.
+    """
 
     action_type: Literal["inspect_scene"] = "inspect_scene"
-    context_path: NodePath = "/"
-    max_depth: int = Field(default=2, ge=1, le=10)
+    context_path: NodePath = "/obj"
+    max_depth: int = Field(default=1, ge=1, le=10)
 
     @field_validator("context_path")
     @classmethod

@@ -22,6 +22,11 @@ from app.houdini.executor import (
     UnsupportedActionError,
     build_script,
 )
+from app.houdini.inspector import (
+    describe_node,
+    describe_scene,
+    format_scene_summary,
+)
 from app.houdini.schemas import (
     Action,
     ConnectNodesAction,
@@ -56,4 +61,7 @@ __all__ = [
     "SetParameterAction",
     "UnsupportedActionError",
     "build_script",
+    "describe_node",
+    "describe_scene",
+    "format_scene_summary",
 ]

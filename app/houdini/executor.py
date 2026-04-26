@@ -9,9 +9,11 @@ types not in :data:`SUPPORTED_ACTION_TYPES` are rejected at build time.
 
 from __future__ import annotations
 
+import inspect as _stdlib_inspect
 import json
 from typing import Final
 
+from app.houdini import inspector as _inspector_module
 from app.houdini.schemas import ProjectPlan
 
 # Sentinels delimit the result payload in the subprocess stdout so we can
@@ -59,6 +61,11 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised inside hython
     _emit({{"fatal": "hou import failed: " + str(exc), "results": []}})
     sys.exit(2)
+
+
+# --- Begin embedded inspector ---------------------------------------------
+__INSPECTOR_SOURCE__
+# --- End embedded inspector -----------------------------------------------
 
 
 def _resolve(path):
@@ -120,22 +127,11 @@ def _save_file(action):
 
 
 def _inspect_scene(action):
-    root = _resolve(action.get("context_path", "/"))
-    max_depth = int(action.get("max_depth", 2))
-
-    def _describe(node, depth):
-        info = {{
-            "path": node.path(),
-            "name": node.name(),
-            "type": node.type().name(),
-        }}
-        if depth > 0:
-            info["children"] = [
-                _describe(child, depth - 1) for child in node.children()
-            ]
-        return info
-
-    return _describe(root, max_depth)
+    return describe_scene(
+        hou,
+        context_path=action.get("context_path", "/obj"),
+        max_depth=int(action.get("max_depth", 1)),
+    )
 
 
 _HANDLERS = {{
@@ -185,6 +181,24 @@ if __name__ == "__main__":
 '''
 
 
+_INSPECTOR_FUNCTIONS = (
+    _inspector_module._is_simple,
+    _inspector_module._to_jsonable,
+    _inspector_module.collect_node_parameters,
+    _inspector_module.collect_inputs,
+    _inspector_module.collect_outputs,
+    _inspector_module.describe_node,
+    _inspector_module.describe_scene,
+)
+
+
+def _inspector_source() -> str:
+    header = f"MAX_PARAMETERS_PER_NODE = {_inspector_module.MAX_PARAMETERS_PER_NODE}\n"
+    return header + "\n\n".join(
+        _stdlib_inspect.getsource(fn) for fn in _INSPECTOR_FUNCTIONS
+    )
+
+
 def build_script(plan: ProjectPlan) -> str:
     """Return a self-contained Python script that runs ``plan`` under hython.
 
@@ -195,11 +209,12 @@ def build_script(plan: ProjectPlan) -> str:
     _ensure_supported(plan)
     plan_dict = plan.model_dump(mode="json")
     plan_json = json.dumps(plan_dict, sort_keys=True)
-    return _SCRIPT_TEMPLATE.format(
+    formatted = _SCRIPT_TEMPLATE.format(
         result_begin=RESULT_BEGIN,
         result_end=RESULT_END,
         plan_literal=repr(plan_json),
     )
+    return formatted.replace("__INSPECTOR_SOURCE__", _inspector_source())
 
 
 def _ensure_supported(plan: ProjectPlan) -> None:

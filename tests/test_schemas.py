@@ -249,8 +249,8 @@ def test_layout_children_valid() -> None:
 
 def test_inspect_scene_defaults() -> None:
     action = InspectSceneAction.model_validate({"action_type": "inspect_scene"})
-    assert action.context_path == "/"
-    assert action.max_depth == 2
+    assert action.context_path == "/obj"
+    assert action.max_depth == 1
 
 
 def test_inspect_scene_max_depth_bounds() -> None:

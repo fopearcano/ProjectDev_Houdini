@@ -29,12 +29,18 @@ from app.houdini.schemas import ProjectPlan
 
 
 class _FakeParm:
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.value: Any = None
+    def __init__(self, name: str, value: Any = 0.0) -> None:
+        self._name = name
+        self._value: Any = value
+
+    def name(self) -> str:
+        return self._name
+
+    def eval(self) -> Any:
+        return self._value
 
     def set(self, value: Any) -> None:
-        self.value = value
+        self._value = value
 
 
 class _FakeType:
@@ -52,7 +58,8 @@ class _FakeNode:
         self._type_name = type_name
         self._children: list["_FakeNode"] = []
         self._params: dict[str, _FakeParm] = {}
-        self.inputs: dict[int, tuple["_FakeNode", int]] = {}
+        self._input_slots: list["_FakeNode | None"] = []
+        self._consumers: list["_FakeNode"] = []
         self.laid_out_calls = 0
 
     # hou-compatible surface
@@ -71,6 +78,9 @@ class _FakeNode:
     def parmTuple(self, name: str) -> _FakeParm | None:
         return None
 
+    def parms(self) -> list[_FakeParm]:
+        return list(self._params.values())
+
     def children(self) -> list["_FakeNode"]:
         return list(self._children)
 
@@ -82,14 +92,24 @@ class _FakeNode:
         )
         child = _FakeNode(path=path, name=node_name, type_name=node_type)
         # Pretend the node exposes a few common parameters.
-        child._params["tx"] = _FakeParm("tx")
-        child._params["visible"] = _FakeParm("visible")
-        child._params["radx"] = _FakeParm("radx")
+        child._params["tx"] = _FakeParm("tx", 0.0)
+        child._params["visible"] = _FakeParm("visible", True)
+        child._params["radx"] = _FakeParm("radx", 1.0)
         self._children.append(child)
         return child
 
     def setInput(self, idx: int, src: "_FakeNode", output_idx: int = 0) -> None:
-        self.inputs[idx] = (src, output_idx)
+        while len(self._input_slots) <= idx:
+            self._input_slots.append(None)
+        self._input_slots[idx] = src
+        if self not in src._consumers:
+            src._consumers.append(self)
+
+    def inputs(self) -> tuple["_FakeNode | None", ...]:
+        return tuple(self._input_slots)
+
+    def outputs(self) -> tuple["_FakeNode", ...]:
+        return tuple(self._consumers)
 
     def layoutChildren(self) -> None:
         self.laid_out_calls += 1
@@ -98,9 +118,14 @@ class _FakeNode:
 class _FakeHipFile:
     def __init__(self) -> None:
         self.saved: list[str] = []
+        self._path: str = ""
 
     def save(self, path: str) -> None:
         self.saved.append(path)
+        self._path = path
+
+    def path(self) -> str:
+        return self._path
 
 
 class _FakeHou:
@@ -376,5 +401,13 @@ def test_generated_script_runs_full_pipeline() -> None:
     assert all(r["success"] for r in payload["results"])
     assert _FAKE_HOU.hipFile.saved == ["/tmp/scene.hip"]
     inspect = payload["results"][-1]["data"]
-    assert inspect["path"] == "/obj"
-    assert {child["name"] for child in inspect["children"]} == {"rock1", "rock2"}
+    assert inspect["context_path"] == "/obj"
+    assert inspect["max_depth"] == 1
+    assert inspect["hip_file"] == "/tmp/scene.hip"
+    root = inspect["root"]
+    assert root["path"] == "/obj"
+    assert root["children_count"] == 2
+    assert {child["name"] for child in root["children"]} == {"rock1", "rock2"}
+    # The connect_nodes step should be reflected in the inspector's input/output graph.
+    rock2 = next(c for c in root["children"] if c["name"] == "rock2")
+    assert "/obj/rock1" in rock2["inputs"]
