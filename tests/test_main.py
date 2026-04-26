@@ -65,16 +65,29 @@ def test_run_dry_run_skips_llm_and_prints_config(
     assert "ProjectDev configuration:" in captured.out
 
 
-def test_run_sends_prompt_and_prints_response(
+def test_run_sends_prompt_and_prints_plan(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_args: dict[str, object] = {}
+    plan = ProjectPlan.model_validate(
+        {
+            "user_goal": "make a procedural rock",
+            "actions": [
+                {
+                    "action_type": "create_node",
+                    "context_path": "/obj",
+                    "node_type": "geo",
+                    "node_name": "rock_geo",
+                }
+            ],
+        }
+    )
 
-    def fake_plan(prompt: str, *, config: Config) -> str:
+    def fake_plan(prompt: str, *, config: Config) -> ProjectPlan:
         captured_args["prompt"] = prompt
         captured_args["config"] = config
-        return "I would create a procedural rock."
+        return plan
 
     monkeypatch.setattr("app.main.plan_user_request", fake_plan)
 
@@ -86,8 +99,8 @@ def test_run_sends_prompt_and_prints_response(
     assert captured_args["prompt"] == "make a procedural rock"
     assert captured_args["config"] is config
     assert "Received command: make a procedural rock" in out
-    assert "Assistant:" in out
-    assert "I would create a procedural rock." in out
+    assert "Plan (1 actions):" in out
+    assert '"node_name": "rock_geo"' in out
 
 
 def test_run_prints_project_plan_when_skill_matches(
@@ -136,8 +149,27 @@ def test_run_reports_llm_errors_on_stderr(
 
     assert rc == 1
     assert "Received command: hi" in captured.out
-    assert "Assistant:" not in captured.out
+    assert "Plan (" not in captured.out
     assert "LLM error: server down" in captured.err
+
+
+def test_run_reports_planner_error_on_stderr(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.llm.planner import PlannerError
+
+    def fake_plan(prompt: str, *, config: Config) -> str:
+        raise PlannerError("could not parse JSON after repair")
+
+    monkeypatch.setattr("app.main.plan_user_request", fake_plan)
+
+    rc = run("hi", Config(lmstudio_model="m"))
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert "Plan (" not in captured.out
+    assert "Planner error: could not parse JSON after repair" in captured.err
 
 
 # --- --inspect -------------------------------------------------------------

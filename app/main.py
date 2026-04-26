@@ -11,7 +11,7 @@ from app.houdini.bridge import HoudiniBridge, HoudiniBridgeError
 from app.houdini.inspector import format_scene_summary
 from app.houdini.schemas import InspectSceneAction, ProjectPlan
 from app.llm.lmstudio_client import LMStudioError
-from app.llm.planner import plan_user_request
+from app.llm.planner import PlannerError, plan_user_request
 
 DEFAULT_INSPECT_DEPTH = 1
 MAX_INSPECT_DEPTH = 10
@@ -78,18 +78,17 @@ def run(
         return 0
 
     try:
-        response = plan_user_request(command, config=config)
+        plan = plan_user_request(command, config=config)
     except LMStudioError as exc:
         print(f"LLM error: {exc}", file=sys.stderr)
         return 1
+    except PlannerError as exc:
+        print(f"Planner error: {exc}", file=sys.stderr)
+        return 1
 
     print()
-    if isinstance(response, ProjectPlan):
-        print(f"Plan ({len(response.actions)} actions):")
-        print(response.model_dump_json(indent=2))
-    else:
-        print("Assistant:")
-        print(response)
+    print(f"Plan ({len(plan.actions)} actions):")
+    print(plan.model_dump_json(indent=2))
     return 0
 
 
