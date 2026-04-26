@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from typing import Sequence
 
 from app.config import Config
+from app.llm.lmstudio_client import LMStudioError
+from app.llm.planner import plan_user_request
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,14 +24,43 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         help="Natural language command to execute (quoted).",
     )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="Print the loaded configuration before sending the prompt.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Echo the command and exit without contacting the LLM.",
+    )
     return parser
 
 
-def run(command: str, config: Config) -> int:
-    """Handle a single command. For now this only echoes the input."""
+def run(
+    command: str,
+    config: Config,
+    *,
+    show_config: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """Handle a single command: send it to the LLM and print the response."""
 
     print(f"Received command: {command}")
-    print(config.describe())
+    if show_config or dry_run:
+        print(config.describe())
+    if dry_run:
+        return 0
+
+    try:
+        response = plan_user_request(command, config=config)
+    except LMStudioError as exc:
+        print(f"LLM error: {exc}", file=sys.stderr)
+        return 1
+
+    print()
+    print("Assistant:")
+    print(response)
     return 0
 
 
@@ -38,7 +70,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     command = " ".join(args.command).strip()
 
     config = Config.from_env()
-    return run(command, config)
+    return run(
+        command,
+        config,
+        show_config=args.show_config,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == "__main__":
