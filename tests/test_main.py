@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import Config
+from app.houdini.schemas import ProjectPlan
 from app.llm.lmstudio_client import LMStudioUnreachableError
 from app.main import build_parser, run
 
@@ -68,6 +69,38 @@ def test_run_sends_prompt_and_prints_response(
     assert "Received command: make a procedural rock" in out
     assert "Assistant:" in out
     assert "I would create a procedural rock." in out
+
+
+def test_run_prints_project_plan_when_skill_matches(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = ProjectPlan.model_validate(
+        {
+            "user_goal": "make a rock",
+            "actions": [
+                {
+                    "action_type": "create_node",
+                    "context_path": "/obj",
+                    "node_type": "geo",
+                    "node_name": "procedural_rock_geo",
+                }
+            ],
+        }
+    )
+
+    def fake_plan(prompt: str, *, config: Config) -> ProjectPlan:
+        return plan
+
+    monkeypatch.setattr("app.main.plan_user_request", fake_plan)
+
+    rc = run("make a rock", Config())
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "Plan (1 actions):" in out
+    assert '"action_type": "create_node"' in out
+    assert "procedural_rock_geo" in out
 
 
 def test_run_reports_llm_errors_on_stderr(

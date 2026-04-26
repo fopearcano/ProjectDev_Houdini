@@ -7,6 +7,7 @@ from typing import Sequence
 import pytest
 
 from app.config import Config
+from app.houdini.schemas import ProjectPlan
 from app.llm.lmstudio_client import ChatMessage
 from app.llm.planner import DEFAULT_SYSTEM_PROMPT, build_messages, plan_user_request
 
@@ -77,11 +78,74 @@ def test_plan_user_request_builds_client_from_config(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("app.llm.planner.LMStudioClient", StubClient)
 
     config = Config(lmstudio_base_url="http://x/v1", lmstudio_model="m")
-    result = plan_user_request("make a rock", config=config)
+    result = plan_user_request("make a sphere", config=config)
 
     assert result == "stubbed"
     assert captured["base_url"] == "http://x/v1"
     assert captured["model"] == "m"
     messages = captured["messages"]
     assert isinstance(messages, list)
-    assert messages[1] == {"role": "user", "content": "make a rock"}
+    assert messages[1] == {"role": "user", "content": "make a sphere"}
+
+
+# --- Skill routing ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "make a rock",
+        "Make a procedural rock",
+        "create a stone for me",
+        "build a boulder",
+        "I want some rocks",
+        "carve some stones",
+        "design a cluster of boulders",
+    ],
+)
+def test_rock_prompts_route_to_procedural_rock_skill(prompt: str) -> None:
+    fake = FakeClient(response="should not be called")
+
+    result = plan_user_request(prompt, client=fake)
+
+    assert isinstance(result, ProjectPlan)
+    assert fake.calls == []
+    # The plan must include the procedural rock geo container.
+    geo_actions = [
+        a for a in result.actions
+        if getattr(a, "node_name", None) == "procedural_rock_geo"
+    ]
+    assert len(geo_actions) == 1
+    assert result.user_goal == prompt
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "rocky road",        # 'rock' inside a longer word, not whole-word
+        "make a sphere",
+        "build a procedural mountain",
+        "stoneware ceramics",
+    ],
+)
+def test_non_rock_prompts_fall_through_to_llm(prompt: str) -> None:
+    fake = FakeClient(response="LLM response")
+
+    result = plan_user_request(prompt, client=fake)
+
+    assert result == "LLM response"
+    assert len(fake.calls) == 1
+
+
+def test_rock_route_skips_llm_client_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skill matches must not even attempt to build an LMStudioClient."""
+
+    def boom(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("LMStudioClient should not be constructed")
+
+    monkeypatch.setattr("app.llm.planner.LMStudioClient", boom)
+
+    result = plan_user_request("make a procedural rock")
+    assert isinstance(result, ProjectPlan)

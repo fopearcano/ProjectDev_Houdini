@@ -7,6 +7,7 @@ import sys
 from typing import Sequence
 
 from app.config import Config
+from app.houdini.schemas import ProjectPlan
 from app.llm.lmstudio_client import LMStudioError
 from app.llm.planner import plan_user_request
 
@@ -59,8 +60,12 @@ def run(
         return 1
 
     print()
-    print("Assistant:")
-    print(response)
+    if isinstance(response, ProjectPlan):
+        print(f"Plan ({len(response.actions)} actions):")
+        print(response.model_dump_json(indent=2))
+    else:
+        print("Assistant:")
+        print(response)
     return 0
 
 
